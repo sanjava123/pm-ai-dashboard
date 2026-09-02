@@ -1,4 +1,4 @@
-# src/jira_client.py
+﻿# src/jira_client.py
 import os
 import logging
 from datetime import datetime
@@ -59,20 +59,20 @@ class JiraClient:
 
     def fetch_sprint_data(self, project_key: str, sprint_names: List[str] = None) -> pd.DataFrame:
         """
-        Main entry point. Fetches issues for specific sprints or open sprints.
-        Calculates Cycle Time from Changelog.
+        Fetches issues. 
+        - If sprint_names provided: uses them.
+        - Else: Tries openSprints() (Scrum). 
+        - If that fails (Kanban/no sprints): Falls back to all project issues.
         """
         # 1. Build JQL
         if sprint_names:
             sprint_clause = f"sprint in ({','.join([f'\"{s}\"' for s in sprint_names])})"
+            jql = f"project = {project_key} AND {sprint_clause} ORDER BY created DESC"
         else:
-            sprint_clause = "sprint in openSprints()"
-        
-        jql = f"project = {project_key} AND {sprint_clause} ORDER BY created DESC"
-        
-        # 2. Define Fields to Fetch (Reduce Payload)
-        # System fields: summary, status, assignee, issuetype, created, updated, resolutiondate, sprint, story points
-        # We need the ID for Story Points and Sprint usually
+            # Try Scrum JQL first
+            jql = f"project = {project_key} AND sprint in openSprints() ORDER BY created DESC"
+
+        # 2. Define Fields
         sp_id = self.get_field_id("Story Points") or self.get_field_id("Story Point Estimate")
         sprint_id = self.get_field_id("Sprint")
         
@@ -81,18 +81,28 @@ class JiraClient:
             "resolutiondate", "priority", "labels", "components",
             sp_id, sprint_id
         ]
-        fields = [f for f in fields if f] # Remove None
+        fields = [f for f in fields if f]
 
-        issues = self.search_issues_paginated(jql, fields)
+        # 3. Execute with Fallback
+        try:
+            issues = self.search_issues_paginated(jql, fields)
+        except JIRAError as e:
+            # Fallback: Kanban / No Sprints / Permission issue
+            if "Sprint" in str(e) or "sprint" in str(e).lower() or e.status_code == 400:
+                logger.warning(f"Sprint JQL failed ({e}), falling back to all project issues.")
+                jql = f"project = {project_key} ORDER BY created DESC"
+                issues = self.search_issues_paginated(jql, fields)
+            else:
+                raise
+
         logger.info(f"Fetched {len(issues)} issues from Jira.")
 
-        # 3. Parse to DataFrame
+        # 4. Parse (Same as before)
         rows = []
         for issue in issues:
             rows.append(self._parse_issue(issue, sp_id, sprint_id))
         
         return pd.DataFrame(rows)
-
     def _parse_issue(self, issue: Any, sp_id: str, sprint_id: str) -> Dict:
         """Extract flat dict from Jira Issue object, including Cycle Time from Changelog."""
         fields = issue.fields
@@ -177,3 +187,4 @@ class JiraClient:
         if components:
             return components[0].name
         return key.split('-')[0] if '-' in key else "Unknown"
+
