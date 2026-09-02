@@ -50,8 +50,9 @@ def get_ai_retro(_df, sprint):
 with st.sidebar:
     st.image("https://cdn.simpleicons.org/atlassian/0052CC", width=60)
     st.title("🤖 PM AI Pulse")
-    st.captoin(f"Project: `{st.secrets.JIRA_PROJECT_KEY}` | Powered by Groq + Jira")
-    
+   # LINE 53 - CHANGE ONLY THIS WORD:
+    st.caption(f"Project: `{st.secrets.JIRA_PROJECT_KEY}` | Powered by Groq + Jira")
+
     client = get_jira_client()
     
     # Fetch Sprint List for Filter (Lightweight call)
